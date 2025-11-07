@@ -31,59 +31,77 @@ process = st.sidebar.button("🔊 Proses Mixing")
 
 # --- Fungsi bantu (Plot diganti ke Plotly) ---
 def plot_waveform(data, sr, title):
-    """Fungsi plot waveform interaktif menggunakan Plotly."""
+    """Fungsi plot waveform interaktif menggunakan Plotly.
+    Menambahkan rangeslider dan dragmode zoom agar mudah melakukan zoom.
+    Untuk performa, data yang diplot bisa di-downsample saat terlalu panjang.
+    """
     fig = go.Figure()
     duration = len(data) / sr
     time = np.linspace(0, duration, len(data))
 
+    # Downsample tampilan jika terlalu banyak titik
+    max_points = 10000
+    step = max(1, len(time) // max_points)
+    time_plot = time[::step]
+
     if data.ndim == 1:
-        # BARIS YANG DIPERBAIKI (y=data)
-        fig.add_trace(go.Scatter(x=time, y=data, name='Mono', line=dict(color='dodgerblue', width=0.8)))
+        y_plot = data[::step]
+        fig.add_trace(
+            go.Scatter(
+                x=time_plot,
+                y=y_plot,
+                name='Mono',
+                line=dict(color='dodgerblue', width=1),
+                hovertemplate='Time: %{x:.4f}s<br>Amplitude: %{y:.6f}<extra></extra>',
+            )
+        )
     else:
-        fig.add_trace(go.Scatter(x=time, y=data[:, 0], name='Left', line=dict(color='blue', width=0.8)))
-        fig.add_trace(go.Scatter(x=time, y=data[:, 1], name='Right', line=dict(color='orange', width=0.8)))
+        left_plot = data[:, 0][::step]
+        right_plot = data[:, 1][::step]
+        fig.add_trace(
+            go.Scatter(
+                x=time_plot,
+                y=left_plot,
+                name='Left',
+                line=dict(color='blue', width=1),
+                hovertemplate='Time: %{x:.4f}s<br>Left: %{y:.6f}<extra></extra>',
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=time_plot,
+                y=right_plot,
+                name='Right',
+                line=dict(color='orange', width=1),
+                hovertemplate='Time: %{x:.4f}s<br>Right: %{y:.6f}<extra></extra>',
+            )
+        )
 
     fig.update_layout(
         title=title,
         xaxis_title="Time [s]",
         yaxis_title="Amplitude",
         margin=dict(l=40, r=40, t=40, b=40),
-        height=300,
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+        height=320,
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        dragmode='zoom'  # default drag mode untuk zooming
     )
+    # Tambahkan rangeslider untuk mempermudah navigasi / zoom pada sumbu waktu
+    fig.update_xaxes(rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
 
-def plot_zoomed_waveform(data, sr, title, zoom_time=0.005):
-    """Fungsi plot waveform zoom interaktif menggunakan Plotly."""
-    fig = go.Figure()
-    samples = int(sr * zoom_time)
-
-    if len(data) < samples:
-        samples = len(data)
-
-    time = np.linspace(0, zoom_time, samples)
-    data_slice = data[:samples]
-
-    if data_slice.ndim == 1:
-        fig.add_trace(go.Scatter(x=time, y=data_slice, name='Zoom', line=dict(color='crimson', width=1)))
-    else:
-        fig.add_trace(go.Scatter(x=time, y=data_slice[:, 0], name='Zoom (Left)', line=dict(color='crimson', width=1)))
-
-    fig.update_layout(
-        title=title + f" (Zoom {zoom_time*1000:.1f} ms)",
-        xaxis_title="Time [s]",
-        yaxis_title="Amplitude",
-        margin=dict(l=40, r=40, t=40, b=40),
-        height=300
-    )
-    st.plotly_chart(fig, use_container_width=True)
 
 def plot_spectrum(data, sr, title):
-    """Fungsi plot spektrum interaktif menggunakan Plotly (diubah ke dBFS)."""
+    """Fungsi plot spektrum interaktif menggunakan Plotly (diubah ke dBFS).
+    Menambahkan marker dan hovertemplate, serta tabel preview nilai frekuensi/puncak.
+    """
     fig = go.Figure()
 
     if data.ndim > 1:
         data = np.mean(data, axis=1)
+
+    # Hapus DC offset kecil agar spektrum lebih rapi
+    data = data - np.mean(data)
 
     fft = np.fft.rfft(data)
     freqs = np.fft.rfftfreq(len(data), 1 / sr)
@@ -91,11 +109,21 @@ def plot_spectrum(data, sr, title):
 
     if np.max(magnitude) > 0:
         magnitude_normalized = magnitude / np.max(magnitude)
-        magnitude_db = 20 * np.log10(magnitude_normalized + 1e-9)
+        magnitude_db = 20 * np.log10(magnitude_normalized + 1e-12)
     else:
-        magnitude_db = np.full_like(magnitude, -200)
+        magnitude_db = np.full_like(magnitude, -200.0)
 
-    fig.add_trace(go.Scatter(x=freqs, y=magnitude_db, name='Spectrum', line=dict(color='purple')))
+    fig.add_trace(
+        go.Scatter(
+            x=freqs,
+            y=magnitude_db,
+            name='Spectrum',
+            mode='lines+markers',
+            marker=dict(size=4, color='purple'),
+            line=dict(color='purple'),
+            hovertemplate='Freq: %{x:.1f} Hz<br>Level: %{y:.2f} dBFS<extra></extra>',
+        )
+    )
 
     fig.update_layout(
         title=title,
@@ -104,9 +132,38 @@ def plot_spectrum(data, sr, title):
         yaxis_type="linear",
         yaxis_range=[-100, 0],
         margin=dict(l=40, r=40, t=40, b=40),
-        height=300
+        height=360,
     )
+    # Tampilkan chart
     st.plotly_chart(fig, use_container_width=True)
+
+    # --- Tampilkan preview nilai per "garis" spektrum (puncak-puncak utama) ---
+    try:
+        # Temukan puncak pada magnitudo (menggunakan nilai asli magnitude, bukan dB)
+        prominence_threshold = np.max(magnitude) * 0.05 if np.max(magnitude) > 0 else 0.0
+        peaks_idx, _ = signal.find_peaks(magnitude, prominence=prominence_threshold)
+        if peaks_idx.size == 0:
+            st.info("Tidak ditemukan puncak spektral yang menonjol untuk ditampilkan.")
+            return
+
+        # Ambil top N puncak berdasarkan magnitudo
+        top_n = 20
+        peaks_sorted = peaks_idx[np.argsort(magnitude[peaks_idx])][::-1][:top_n]
+        peaks_list = []
+        for p in peaks_sorted:
+            peaks_list.append(
+                {
+                    "Frequency (Hz)": float(f"{freqs[p]:.1f}"),
+                    "Level (dBFS)": float(f"{magnitude_db[p]:.2f}"),
+                    "Magnitude": float(f"{magnitude[p]:.6e}")
+                }
+            )
+
+        st.subheader("Preview Nilai Garis Spektrum (Puncak Utama)")
+        st.table(peaks_list)
+    except Exception as e:
+        st.warning(f"Gagal menghitung preview spektrum: {e}")
+
 
 def apply_balance(stereo, bal):
     """Fungsi apply_balance."""
@@ -124,6 +181,7 @@ def apply_balance(stereo, bal):
     right = stereo[:, 1] * right_gain
 
     return np.stack([left, right], axis=1)
+
 
 def design_filter(gain_db, cutoff, sr, filter_type, q=1.0):
     """Mendesain koefisien filter IIR (b, a) untuk EQ."""
@@ -161,6 +219,7 @@ def design_filter(gain_db, cutoff, sr, filter_type, q=1.0):
 
     return np.array([b0, b1, b2]) / a0, np.array([a0, a1, a2]) / a0
 
+
 # --- Preview sebelum mixing ---
 if file1:
     file1.seek(0)
@@ -168,7 +227,6 @@ if file1:
     st.subheader("🎧 Preview Channel 1")
     st.audio(file1)
     plot_waveform(data1, sr1, "Waveform Channel 1")
-    plot_zoomed_waveform(data1, sr1, "Bentuk Gelombang Channel 1")
     plot_spectrum(data1, sr1, "Spektrum Channel 1")
 
 if file2:
@@ -177,7 +235,6 @@ if file2:
     st.subheader("🎧 Preview Channel 2")
     st.audio(file2)
     plot_waveform(data2, sr2, "Waveform Channel 2")
-    plot_zoomed_waveform(data2, sr2, "Bentuk Gelombang Channel 2")
     plot_spectrum(data2, sr2, "Spektrum Channel 2")
 
 # --- Proses mixing ---
@@ -227,7 +284,6 @@ if process:
             st.audio("mixed_output.wav", format="audio/wav")
 
             plot_waveform(final_output, sr1, "Waveform Output (After Mixing & EQ)")
-            plot_zoomed_waveform(final_output, sr1, "Bentuk Gelombang Output (After Mixing & EQ)")
             plot_spectrum(final_output, sr1, "Spektrum Output (After Mixing & EQ)")
 
             st.success("✅ Proses selesai! File dapat diunduh di bawah ini.")
@@ -261,7 +317,6 @@ if st.button("⚙️ Generate"):
     st.success("✅ Audio berhasil dibuat!")
     st.audio("generated.wav", format="audio/wav")
     plot_waveform(y, sr, f"Waveform {wave_type} ({freq} Hz)")
-    plot_zoomed_waveform(y, sr, f"Bentuk Gelombang {wave_type}")
     plot_spectrum(y, sr, f"Spektrum {wave_type}")
 
     with open("generated.wav", "rb") as f:
