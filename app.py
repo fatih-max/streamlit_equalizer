@@ -67,18 +67,25 @@ def plot_waveform(data, sr, title):
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_spectrum(data, sr, title):
-    """Plot spektrum interaktif (Left & Right) dengan perhitungan dB yang benar."""
+    """
+    Plot spektrum interaktif dengan Slider Peak Search, tanpa hover.
+    """
     fig = go.Figure()
 
     if data.ndim == 1:
         data = np.stack([data, data], axis=1)
+
+    # --- FFT dan Logika dB ---
+    # Digunakan untuk plotting
+    magnitude_db_left = np.full(1, -100.0)
+    magnitude_db_right = np.full(1, -100.0)
+    freqs = np.array([0])
 
     for ch_idx, ch_name, color in zip([0, 1], ['Left', 'Right'], ['blue', 'orange']):
         sig = data[:, ch_idx] - np.mean(data[:, ch_idx])
         fft = np.fft.rfft(sig)
         freqs = np.fft.rfftfreq(len(sig), 1 / sr)
         
-        # --- PERBAIKAN LOGIKA dB ---
         magnitude = np.abs(fft)
         ref_max = np.max(magnitude)
 
@@ -88,7 +95,11 @@ def plot_spectrum(data, sr, title):
             min_mag = ref_max * (10**(-100 / 20.0)) 
             magnitude_clipped = np.maximum(magnitude, min_mag)
             magnitude_db = 20 * np.log10(magnitude_clipped / ref_max)
-        # --- AKHIR PERBAIKAN ---
+        
+        if ch_idx == 0:
+            magnitude_db_left = magnitude_db
+        else:
+            magnitude_db_right = magnitude_db
 
         fig.add_trace(go.Scatter(
             x=freqs,
@@ -96,9 +107,27 @@ def plot_spectrum(data, sr, title):
             name=f'{ch_name} Channel',
             mode='lines',
             line=dict(color=color, width=1),
-            hovertemplate='Freq: %{x:.1f} Hz<br>Level: %{y:.2f} dBFS<extra></extra>'
+            hoverinfo='none'  # Nonaktifkan hover
         ))
 
+    # --- Logika Peak Search ---
+    # Gunakan sinyal gabungan (rata-rata) untuk mencari puncak
+    sig_combined = np.mean(data, axis=1) - np.mean(data, axis=1)
+    fft_combined = np.fft.rfft(sig_combined)
+    freqs_combined = np.fft.rfftfreq(len(sig_combined), 1 / sr)
+    mag_combined = np.abs(fft_combined)
+    ref_max_combined = np.max(mag_combined)
+    
+    magnitude_db_combined = np.full_like(mag_combined, -100.0)
+    if ref_max_combined > 1e-12:
+        min_mag_combined = ref_max_combined * (10**(-100 / 20.0))
+        mag_clipped_combined = np.maximum(mag_combined, min_mag_combined)
+        magnitude_db_combined = 20 * np.log10(mag_clipped_combined / ref_max_combined)
+
+    # Cari semua puncak yang signifikan (di atas -90dB)
+    peaks, _ = signal.find_peaks(magnitude_db_combined, height=-90, distance=5)
+
+    # --- Layout dan Slider ---
     fig.update_layout(
         title=title,
         xaxis_title="Frequency [Hz]",
@@ -106,11 +135,83 @@ def plot_spectrum(data, sr, title):
         yaxis_range=[-100, 5], 
         margin=dict(l=40, r=40, t=40, b=40),
         height=360,
-        hovermode='x unified',      # Tetap pakai 'x unified'
-        xaxis_showspikes=False      # DIUBAH: Ini akan mematikan garis vertikal
+        hovermode=False # Nonaktifkan hover
     )
     fig.update_xaxes(type="log", rangeslider=dict(visible=True))
+
+    # Tampilkan plot
     st.plotly_chart(fig, use_container_width=True)
+
+    # --- UI Slider dan Penanda Puncak ---
+    if len(peaks) == 0:
+        st.warning("Tidak ada puncak signifikan yang terdeteksi.")
+    else:
+        peak_freqs = freqs_combined[peaks]
+        peak_levels = magnitude_db_combined[peaks]
+        
+        min_f = max(20, int(freqs_combined.min()))
+        max_f = int(freqs_combined.max())
+        
+        # 1. Buat Slider Kursor
+        target_freq = st.slider(
+            "Geser Kursor Puncak (Hz)", 
+            min_f, 
+            max_f, 
+            int(peak_freqs[np.argmax(peak_levels)]),  # Default ke puncak tertinggi
+            key=f"slider_{title}"
+        )
+        
+        # 2. Cari puncak terdekat dari slider
+        closest_peak_idx = np.argmin(np.abs(peak_freqs - target_freq))
+        display_freq = peak_freqs[closest_peak_idx]
+        display_level = peak_levels[closest_peak_idx]
+
+        # 3. Tampilkan metrik puncak yang ditemukan
+        st.metric(
+            f"Puncak Terdekat (dari {target_freq} Hz)", 
+            f"{display_freq:.1f} Hz", 
+            f"{display_level:.1f} dBFS"
+        )
+        
+        # 4. Tambahkan penanda ke plot (Harus di-render ulang)
+        # Hapus plot lama dan buat ulang dengan penanda
+        
+        # Buat ulang plot
+        fig_with_marker = go.Figure()
+        fig_with_marker.add_trace(go.Scatter(x=freqs, y=magnitude_db_left, name='Left Channel', mode='lines', line=dict(color='blue', width=1), hoverinfo='none'))
+        fig_with_marker.add_trace(go.Scatter(x=freqs, y=magnitude_db_right, name='Right Channel', mode='lines', line=dict(color='orange', width=1), hoverinfo='none'))
+        
+        # Tambahkan Kursor Slider
+        fig_with_marker.add_vline(x=target_freq, line_dash="dash", line_color="grey", annotation_text="Kursor")
+        
+        # Tambahkan Penanda Puncak
+        fig_with_marker.add_trace(go.Scatter(
+            x=[display_freq],
+            y=[display_level],
+            mode='markers+text',
+            text=[f"{display_freq:.1f} Hz"],
+            textposition="top center",
+            name='Puncak Terdekat',
+            marker=dict(color='red', size=10, symbol='x'),
+            hoverinfo='none'
+        ))
+        
+        fig_with_marker.update_layout(
+            title=title,
+            xaxis_title="Frequency [Hz]",
+            yaxis_title="Level (dBFS)",
+            yaxis_range=[-100, 5], 
+            margin=dict(l=40, r=40, t=40, b=40),
+            height=360,
+            hovermode=False,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+        )
+        fig_with_marker.update_xaxes(type="log", rangeslider=dict(visible=True))
+        
+        # Hapus placeholder plot lama dan tampilkan yang baru
+        st.empty() # Hapus plot sebelumnya
+        st.plotly_chart(fig_with_marker, use_container_width=True) # Tampilkan plot baru
+
 
 def apply_balance(stereo, bal):
     if stereo.ndim == 1:
