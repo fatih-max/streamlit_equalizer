@@ -92,17 +92,14 @@ def plot_spectrum(data, sr, title):
             hovertemplate='Freq: %{x:.1f} Hz<br>Level: %{y:.2f} dBFS<extra></extra>'
         ))
 
-    # --- Peak Search Dihapus ---
-    # Tidak ada lagi tombol atau logika peak search
-
     fig.update_layout(
-        title=title,  # Judul dikembalikan ke layout
+        title=title,
         xaxis_title="Frequency [Hz]",
         yaxis_title="Level (dBFS)",
         yaxis_range=[-100, 0],
         margin=dict(l=40, r=40, t=40, b=40),
         height=360,
-        hovermode='closest'  # Diubah dari 'x unified' ke 'closest'
+        hovermode='x'  # DIUBAH: 'x' akan menampilkan tooltip di sepanjang sumbu X
     )
     fig.update_xaxes(type="log", rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
@@ -202,7 +199,7 @@ if process:
             st.audio("mixed_output.wav", format="audio/wav")
 
             plot_waveform(final_output, sr1, "Waveform Output (After Mixing & EQ)")
-            plot_spectrum(final_output, sr1, "Spektrum Output (After Mixing & EQ)")
+            plot_spectrum(final_sroutput, sr1, "Spektrum Output (After Mixing & EQ)")
 
             st.success("✅ Proses selesai! File dapat diunduh di bawah ini.")
             with open("mixed_output.wav", "rb") as f:
