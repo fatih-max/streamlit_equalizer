@@ -61,7 +61,7 @@ def plot_waveform(data, sr, title):
         height=320,
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
         dragmode='zoom',
-        hovermode='x unified' # 'x unified' cocok untuk waveform
+        hovermode='x unified'
     )
     fig.update_xaxes(rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
@@ -83,14 +83,10 @@ def plot_spectrum(data, sr, title):
         ref_max = np.max(magnitude)
 
         if ref_max < 1e-12:
-            # Sinyal terlalu sunyi, isi dengan -100dB
             magnitude_db = np.full_like(magnitude, -100.0)
         else:
-            # Tetapkan lantai kebisingan (noise floor) di -100dB
             min_mag = ref_max * (10**(-100 / 20.0)) 
-            # Klip nilai di bawah lantai kebisingan
             magnitude_clipped = np.maximum(magnitude, min_mag)
-            # Hitung dB relatif terhadap puncak
             magnitude_db = 20 * np.log10(magnitude_clipped / ref_max)
         # --- AKHIR PERBAIKAN ---
 
@@ -107,10 +103,11 @@ def plot_spectrum(data, sr, title):
         title=title,
         xaxis_title="Frequency [Hz]",
         yaxis_title="Level (dBFS)",
-        yaxis_range=[-100, 5],  # Atur rentang Y agar sesuai (sedikit di atas 0)
+        yaxis_range=[-100, 5], 
         margin=dict(l=40, r=40, t=40, b=40),
         height=360,
-        hovermode='x'  # DIUBAH: 'x' akan menampilkan tooltip di setiap garis
+        hovermode='x unified',      # Tetap pakai 'x unified'
+        xaxis_showspikes=False      # DIUBAH: Ini akan mematikan garis vertikal
     )
     fig.update_xaxes(type="log", rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
