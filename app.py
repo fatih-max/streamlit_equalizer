@@ -1,55 +1,57 @@
-import streamlit as st
-import numpy as np
-import soundfile as sf
-import plotly.graph_objects as go
-from scipy import signal
+def plot_spectrum(data, sr, title):
+    """Plot spektrum interaktif + tombol Peak Search."""
+    fig = go.Figure()
 
-st.title("🎚️ Software-Defined Audio Mixer dan Equalizer 👌")
-
-# === Sidebar ===
-st.sidebar.header("🎛️ Kontrol Mixer")
-st.sidebar.subheader("Channel 1")
-vol1 = st.sidebar.slider("Volume (dB)", -60.0, 6.0, 0.0, key="vol1")
-
-uploaded_file = st.file_uploader("Unggah file audio (WAV)", type=["wav"])
-if uploaded_file:
-    data, fs = sf.read(uploaded_file)
     if data.ndim > 1:
         data = np.mean(data, axis=1)
+    data = data - np.mean(data)
 
-    # Aplikasi volume
-    gain = 10 ** (vol1 / 20)
-    data = data * gain
+    fft = np.fft.rfft(data)
+    freqs = np.fft.rfftfreq(len(data), 1 / sr)
+    magnitude = np.abs(fft)
+    magnitude_db = 20 * np.log10(magnitude / np.max(magnitude) + 1e-12)
 
-    # Tombol Peak Search
-    peak_search = st.button("🔍 Peak Search")
+    # --- Tombol Peak Search ---
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.markdown(f"**{title}**")
+    with col2:
+        do_peak = st.button("🔍 Peak Search", key=title)
 
-    # Hitung spektrum
-    freqs, Pxx = signal.welch(data, fs=fs, nperseg=1024)
+    fig.add_trace(go.Scatter(
+        x=freqs,
+        y=magnitude_db,
+        name='Spectrum',
+        mode='lines',
+        line=dict(color='purple', width=1),
+        hovertemplate='Freq: %{x:.1f} Hz<br>Level: %{y:.2f} dBFS<extra></extra>'
+    ))
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=freqs, y=10*np.log10(Pxx), mode="lines", name="Spektrum"))
-
-    if peak_search:
-        peak_idx = np.argmax(Pxx)
+    # --- Jika tombol ditekan, tandai puncak ---
+    if do_peak:
+        peak_idx = np.argmax(magnitude_db)
         peak_freq = freqs[peak_idx]
-        peak_power = 10 * np.log10(Pxx[peak_idx])
+        peak_level = magnitude_db[peak_idx]
         fig.add_trace(go.Scatter(
             x=[peak_freq],
-            y=[peak_power],
-            mode="markers+text",
-            name="Peak",
+            y=[peak_level],
+            mode='markers+text',
             text=[f"{peak_freq:.1f} Hz"],
             textposition="top center",
-            marker=dict(color="red", size=10)
+            name='Peak',
+            marker=dict(color='red', size=10)
         ))
-        st.success(f"🔺 Peak found at **{peak_freq:.2f} Hz**")
+        st.success(f"🔺 Peak ditemukan di **{peak_freq:.2f} Hz** ({peak_level:.1f} dBFS)")
 
     fig.update_layout(
-        title="Spektrum Audio (Welch PSD)",
-        xaxis_title="Frekuensi (Hz)",
-        yaxis_title="Daya (dB)",
-        template="plotly_white"
+        title=None,
+        xaxis_title="Frequency [Hz]",
+        yaxis_title="Level (dBFS)",
+        yaxis_range=[-100, 0],
+        margin=dict(l=40, r=40, t=40, b=40),
+        height=360,
+        hovermode='x unified'
     )
 
+    fig.update_xaxes(type="log", rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
