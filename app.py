@@ -67,22 +67,34 @@ def plot_waveform(data, sr, title):
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_spectrum(data, sr, title):
-    """Plot spektrum interaktif (Left & Right) tanpa Peak Search."""
+    """Plot spektrum interaktif (Left & Right) dengan perhitungan dB yang benar."""
     fig = go.Figure()
 
-    # --- Channel handling ---
     if data.ndim == 1:
-        # Jika mono, duplikat ke stereo agar plotting konsisten
         data = np.stack([data, data], axis=1)
 
-    # --- FFT per channel ---
     for ch_idx, ch_name, color in zip([0, 1], ['Left', 'Right'], ['blue', 'orange']):
         sig = data[:, ch_idx] - np.mean(data[:, ch_idx])
         fft = np.fft.rfft(sig)
         freqs = np.fft.rfftfreq(len(sig), 1 / sr)
+        
+        # --- PERBAIKAN LOGIKA dB ---
         magnitude = np.abs(fft)
-        # Menghindari log(0)
-        magnitude_db = 20 * np.log10(magnitude / np.max(magnitude) + 1e-12)
+        ref_max = np.max(magnitude)
+
+        if ref_max < 1e-12:
+            # Sinyal terlalu sunyi, isi dengan -100dB
+            magnitude_db = np.full_like(magnitude, -100.0)
+        else:
+            # Tetapkan lantai kebisingan (noise floor) di -100dB
+            # 100dB di bawah puncak (ref_max)
+            min_mag = ref_max * (10**(-100 / 20.0)) 
+            # Klip nilai di bawah lantai kebisingan
+            magnitude_clipped = np.maximum(magnitude, min_mag)
+            # Hitung dB relatif terhadap puncak
+            magnitude_db = 20 * np.log10(magnitude_clipped / ref_max)
+        # --- AKHIR PERBAIKAN ---
+
         fig.add_trace(go.Scatter(
             x=freqs,
             y=magnitude_db,
@@ -96,10 +108,10 @@ def plot_spectrum(data, sr, title):
         title=title,
         xaxis_title="Frequency [Hz]",
         yaxis_title="Level (dBFS)",
-        yaxis_range=[-100, 0],
+        yaxis_range=[-100, 5],  # Atur rentang Y agar sesuai (sedikit di atas 0)
         margin=dict(l=40, r=40, t=40, b=40),
         height=360,
-        hovermode='x'  # DIUBAH: 'x' akan menampilkan tooltip di sepanjang sumbu X
+        hovermode='x unified'  # DIUBAH: Jauh lebih interaktif
     )
     fig.update_xaxes(type="log", rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
@@ -199,7 +211,7 @@ if process:
             st.audio("mixed_output.wav", format="audio/wav")
 
             plot_waveform(final_output, sr1, "Waveform Output (After Mixing & EQ)")
-            plot_spectrum(final_sroutput, sr1, "Spektrum Output (After Mixing & EQ)")
+            plot_spectrum(final_output, sr1, "Spektrum Output (After Mixing & EQ)")
 
             st.success("✅ Proses selesai! File dapat diunduh di bawah ini.")
             with open("mixed_output.wav", "rb") as f:
