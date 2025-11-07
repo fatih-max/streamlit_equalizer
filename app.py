@@ -67,11 +67,12 @@ def plot_waveform(data, sr, title):
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_spectrum(data, sr, title):
-    """Plot spektrum interaktif (Left & Right) + Peak Search."""
+    """Plot spektrum interaktif (Left & Right) tanpa Peak Search."""
     fig = go.Figure()
 
     # --- Channel handling ---
     if data.ndim == 1:
+        # Jika mono, duplikat ke stereo agar plotting konsisten
         data = np.stack([data, data], axis=1)
 
     # --- FFT per channel ---
@@ -80,6 +81,7 @@ def plot_spectrum(data, sr, title):
         fft = np.fft.rfft(sig)
         freqs = np.fft.rfftfreq(len(sig), 1 / sr)
         magnitude = np.abs(fft)
+        # Menghindari log(0)
         magnitude_db = 20 * np.log10(magnitude / np.max(magnitude) + 1e-12)
         fig.add_trace(go.Scatter(
             x=freqs,
@@ -90,41 +92,17 @@ def plot_spectrum(data, sr, title):
             hovertemplate='Freq: %{x:.1f} Hz<br>Level: %{y:.2f} dBFS<extra></extra>'
         ))
 
-    # Tombol Peak Search
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        st.markdown(f"**{title}**")
-    with col2:
-        do_peak = st.button("🔍 Peak Search", key=title)
-
-    if do_peak:
-        # Ambil gabungan magnitude dari kedua channel
-        combined = np.mean(data, axis=1)
-        fft_combined = np.fft.rfft(combined)
-        freqs_combined = np.fft.rfftfreq(len(combined), 1 / sr)
-        magnitude_db_combined = 20 * np.log10(np.abs(fft_combined) / np.max(np.abs(fft_combined)) + 1e-12)
-        peak_idx = np.argmax(magnitude_db_combined)
-        peak_freq = freqs_combined[peak_idx]
-        peak_level = magnitude_db_combined[peak_idx]
-        fig.add_trace(go.Scatter(
-            x=[peak_freq],
-            y=[peak_level],
-            mode='markers+text',
-            text=[f"{peak_freq:.1f} Hz"],
-            textposition="top center",
-            name='Peak',
-            marker=dict(color='red', size=10)
-        ))
-        st.success(f"🔺 Peak ditemukan di **{peak_freq:.2f} Hz** ({peak_level:.1f} dBFS)")
+    # --- Peak Search Dihapus ---
+    # Tidak ada lagi tombol atau logika peak search
 
     fig.update_layout(
-        title=None,
+        title=title,  # Judul dikembalikan ke layout
         xaxis_title="Frequency [Hz]",
         yaxis_title="Level (dBFS)",
         yaxis_range=[-100, 0],
         margin=dict(l=40, r=40, t=40, b=40),
         height=360,
-        hovermode='x unified'
+        hovermode='closest'  # Diubah dari 'x unified' ke 'closest'
     )
     fig.update_xaxes(type="log", rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
@@ -216,6 +194,7 @@ if process:
             eq_output = signal.lfilter(b_treble, a_treble, eq_output, axis=0)
 
             max_abs = np.max(np.abs(eq_output))
+            # Normalisasi jika terjadi clipping
             final_output = eq_output / max_abs if max_abs > 1.0 else eq_output
 
             st.subheader("🎶 Hasil Mixing & EQ")
@@ -236,10 +215,10 @@ st.header("🎵 Generate Audio (.wav)")
 wave_type = st.selectbox("Pilih bentuk gelombang:", ["Sine", "Square", "Triangle", "Sawtooth", "Noise"])
 freq = st.number_input("Frekuensi (Hz)", 100, 5000, 440)
 duration = st.number_input("Durasi (detik)", 0.1, 10.0, 2.0)
-sr = st.number_input("Sample Rate", 8000, 48000, 44100)
+sr_gen = st.number_input("Sample Rate", 8000, 48000, 44100, key="sr_gen")
 
 if st.button("⚙️ Generate"):
-    t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+    t = np.linspace(0, duration, int(sr_gen * duration), endpoint=False)
     if wave_type == "Sine":
         y = 0.5 * np.sin(2 * np.pi * freq * t)
     elif wave_type == "Square":
@@ -248,14 +227,14 @@ if st.button("⚙️ Generate"):
         y = 0.5 * signal.sawtooth(2 * np.pi * freq * t, 0.5)
     elif wave_type == "Sawtooth":
         y = 0.5 * signal.sawtooth(2 * np.pi * freq * t)
-    else:
+    else: # Noise
         y = 0.5 * np.random.uniform(-1, 1, size=len(t))
 
-    sf.write("generated.wav", y, sr)
+    sf.write("generated.wav", y, sr_gen)
     st.success("✅ Audio berhasil dibuat!")
     st.audio("generated.wav", format="audio/wav")
-    plot_waveform(y, sr, f"Waveform {wave_type} ({freq} Hz)")
-    plot_spectrum(y, sr, f"Spektrum {wave_type}")
+    plot_waveform(y, sr_gen, f"Waveform {wave_type} ({freq} Hz)")
+    plot_spectrum(y, sr_gen, f"Spektrum {wave_type}")
 
     with open("generated.wav", "rb") as f:
         st.download_button("⬇️ Download Generated Audio", f, file_name=f"{wave_type.lower()}_{int(freq)}Hz.wav")
