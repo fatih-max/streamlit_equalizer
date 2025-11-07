@@ -31,51 +31,29 @@ process = st.sidebar.button("🔊 Proses Mixing")
 
 # --- Fungsi bantu (Plot diganti ke Plotly) ---
 def plot_waveform(data, sr, title):
-    """Fungsi plot waveform interaktif menggunakan Plotly.
-    Menambahkan rangeslider dan dragmode zoom agar mudah melakukan zoom.
-    Untuk performa, data yang diplot bisa di-downsample saat terlalu panjang.
-    """
+    """Plot waveform interaktif menggunakan Plotly dengan rangeslider dan zoom."""
     fig = go.Figure()
     duration = len(data) / sr
     time = np.linspace(0, duration, len(data))
 
-    # Downsample tampilan jika terlalu banyak titik
     max_points = 10000
     step = max(1, len(time) // max_points)
     time_plot = time[::step]
 
     if data.ndim == 1:
         y_plot = data[::step]
-        fig.add_trace(
-            go.Scatter(
-                x=time_plot,
-                y=y_plot,
-                name='Mono',
-                line=dict(color='dodgerblue', width=1),
-                hovertemplate='Time: %{x:.4f}s<br>Amplitude: %{y:.6f}<extra></extra>',
-            )
-        )
+        fig.add_trace(go.Scatter(x=time_plot, y=y_plot, name='Mono',
+                                 line=dict(color='dodgerblue', width=1),
+                                 hovertemplate='Time: %{x:.4f}s<br>Amplitude: %{y:.6f}<extra></extra>'))
     else:
         left_plot = data[:, 0][::step]
         right_plot = data[:, 1][::step]
-        fig.add_trace(
-            go.Scatter(
-                x=time_plot,
-                y=left_plot,
-                name='Left',
-                line=dict(color='blue', width=1),
-                hovertemplate='Time: %{x:.4f}s<br>Left: %{y:.6f}<extra></extra>',
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=time_plot,
-                y=right_plot,
-                name='Right',
-                line=dict(color='orange', width=1),
-                hovertemplate='Time: %{x:.4f}s<br>Right: %{y:.6f}<extra></extra>',
-            )
-        )
+        fig.add_trace(go.Scatter(x=time_plot, y=left_plot, name='Left',
+                                 line=dict(color='blue', width=1),
+                                 hovertemplate='Time: %{x:.4f}s<br>Left: %{y:.6f}<extra></extra>'))
+        fig.add_trace(go.Scatter(x=time_plot, y=right_plot, name='Right',
+                                 line=dict(color='orange', width=1),
+                                 hovertemplate='Time: %{x:.4f}s<br>Right: %{y:.6f}<extra></extra>'))
 
     fig.update_layout(
         title=title,
@@ -84,115 +62,69 @@ def plot_waveform(data, sr, title):
         margin=dict(l=40, r=40, t=40, b=40),
         height=320,
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-        dragmode='zoom'  # default drag mode untuk zooming
+        dragmode='zoom',
+        hovermode='x unified'
     )
-    # Tambahkan rangeslider untuk mempermudah navigasi / zoom pada sumbu waktu
     fig.update_xaxes(rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
 
 
 def plot_spectrum(data, sr, title):
-    """Fungsi plot spektrum interaktif menggunakan Plotly (diubah ke dBFS).
-    Menambahkan marker dan hovertemplate, serta tabel preview nilai frekuensi/puncak.
-    """
+    """Plot spektrum interaktif (tanpa tabel)."""
     fig = go.Figure()
 
     if data.ndim > 1:
         data = np.mean(data, axis=1)
-
-    # Hapus DC offset kecil agar spektrum lebih rapi
     data = data - np.mean(data)
 
     fft = np.fft.rfft(data)
     freqs = np.fft.rfftfreq(len(data), 1 / sr)
     magnitude = np.abs(fft)
+    magnitude_db = 20 * np.log10(magnitude / np.max(magnitude) + 1e-12)
 
-    if np.max(magnitude) > 0:
-        magnitude_normalized = magnitude / np.max(magnitude)
-        magnitude_db = 20 * np.log10(magnitude_normalized + 1e-12)
-    else:
-        magnitude_db = np.full_like(magnitude, -200.0)
-
-    fig.add_trace(
-        go.Scatter(
-            x=freqs,
-            y=magnitude_db,
-            name='Spectrum',
-            mode='lines+markers',
-            marker=dict(size=4, color='purple'),
-            line=dict(color='purple'),
-            hovertemplate='Freq: %{x:.1f} Hz<br>Level: %{y:.2f} dBFS<extra></extra>',
-        )
-    )
+    fig.add_trace(go.Scatter(
+        x=freqs,
+        y=magnitude_db,
+        name='Spectrum',
+        mode='lines',
+        line=dict(color='purple', width=1),
+        hovertemplate='Freq: %{x:.1f} Hz<br>Level: %{y:.2f} dBFS<extra></extra>'
+    ))
 
     fig.update_layout(
         title=title,
         xaxis_title="Frequency [Hz]",
         yaxis_title="Level (dBFS)",
-        yaxis_type="linear",
         yaxis_range=[-100, 0],
         margin=dict(l=40, r=40, t=40, b=40),
         height=360,
+        hovermode='x unified'
     )
-    # Tampilkan chart
+
+    # Rangeslider dan log-scale opsional
+    fig.update_xaxes(type="log", rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
-
-    # --- Tampilkan preview nilai per "garis" spektrum (puncak-puncak utama) ---
-    try:
-        # Temukan puncak pada magnitudo (menggunakan nilai asli magnitude, bukan dB)
-        prominence_threshold = np.max(magnitude) * 0.05 if np.max(magnitude) > 0 else 0.0
-        peaks_idx, _ = signal.find_peaks(magnitude, prominence=prominence_threshold)
-        if peaks_idx.size == 0:
-            st.info("Tidak ditemukan puncak spektral yang menonjol untuk ditampilkan.")
-            return
-
-        # Ambil top N puncak berdasarkan magnitudo
-        top_n = 20
-        peaks_sorted = peaks_idx[np.argsort(magnitude[peaks_idx])][::-1][:top_n]
-        peaks_list = []
-        for p in peaks_sorted:
-            peaks_list.append(
-                {
-                    "Frequency (Hz)": float(f"{freqs[p]:.1f}"),
-                    "Level (dBFS)": float(f"{magnitude_db[p]:.2f}"),
-                    "Magnitude": float(f"{magnitude[p]:.6e}")
-                }
-            )
-
-        st.subheader("Preview Nilai Garis Spektrum (Puncak Utama)")
-        st.table(peaks_list)
-    except Exception as e:
-        st.warning(f"Gagal menghitung preview spektrum: {e}")
 
 
 def apply_balance(stereo, bal):
     """Fungsi apply_balance."""
     if stereo.ndim == 1:
         stereo = np.stack([stereo, stereo], axis=1)
-
     if bal > 0:
-        left_gain = 1 - bal
-        right_gain = 1
+        left_gain, right_gain = 1 - bal, 1
     else:
-        left_gain = 1
-        right_gain = 1 + bal
-
-    left = stereo[:, 0] * left_gain
-    right = stereo[:, 1] * right_gain
-
-    return np.stack([left, right], axis=1)
+        left_gain, right_gain = 1, 1 + bal
+    return np.stack([stereo[:, 0] * left_gain, stereo[:, 1] * right_gain], axis=1)
 
 
 def design_filter(gain_db, cutoff, sr, filter_type, q=1.0):
     """Mendesain koefisien filter IIR (b, a) untuk EQ."""
     if gain_db == 0:
         return np.array([1]), np.array([1])
-
     A = 10**(gain_db / 40)
     w0 = 2 * np.pi * cutoff / sr
     alpha = np.sin(w0) / (2 * q)
     cos_w0 = np.cos(w0)
-
     if filter_type == 'low_shelf':
         b0 = A * ((A + 1) - (A - 1) * cos_w0 + 2 * np.sqrt(A) * alpha)
         b1 = 2 * A * ((A - 1) - (A + 1) * cos_w0)
@@ -201,12 +133,8 @@ def design_filter(gain_db, cutoff, sr, filter_type, q=1.0):
         a1 = -2 * ((A - 1) + (A + 1) * cos_w0)
         a2 = (A + 1) + (A - 1) * cos_w0 - 2 * np.sqrt(A) * alpha
     elif filter_type == 'peaking':
-        b0 = 1 + alpha * A
-        b1 = -2 * cos_w0
-        b2 = 1 - alpha * A
-        a0 = 1 + alpha / A
-        a1 = -2 * cos_w0
-        a2 = 1 - alpha / A
+        b0, b1, b2 = 1 + alpha * A, -2 * cos_w0, 1 - alpha * A
+        a0, a1, a2 = 1 + alpha / A, -2 * cos_w0, 1 - alpha / A
     elif filter_type == 'high_shelf':
         b0 = A * ((A + 1) + (A - 1) * cos_w0 + 2 * np.sqrt(A) * alpha)
         b1 = -2 * A * ((A - 1) + (A + 1) * cos_w0)
@@ -216,7 +144,6 @@ def design_filter(gain_db, cutoff, sr, filter_type, q=1.0):
         a2 = (A + 1) - (A - 1) * cos_w0 - 2 * np.sqrt(A) * alpha
     else:
         return np.array([1]), np.array([1])
-
     return np.array([b0, b1, b2]) / a0, np.array([a0, a1, a2]) / a0
 
 
@@ -253,11 +180,8 @@ if process:
             min_len = min(len(data1), len(data2))
             data1, data2 = data1[:min_len], data2[:min_len]
 
-            gain1 = 10 ** (vol1 / 20)
-            gain2 = 10 ** (vol2 / 20)
-
-            data1 = data1 * gain1
-            data2 = data2 * gain2
+            gain1, gain2 = 10 ** (vol1 / 20), 10 ** (vol2 / 20)
+            data1, data2 = data1 * gain1, data2 * gain2
 
             data1 = apply_balance(data1, balance1)
             data2 = apply_balance(data2, balance2)
@@ -274,10 +198,7 @@ if process:
             eq_output = signal.lfilter(b_treble, a_treble, eq_output, axis=0)
 
             max_abs = np.max(np.abs(eq_output))
-            if max_abs > 1.0:
-                 final_output = eq_output / max_abs
-            else:
-                 final_output = eq_output
+            final_output = eq_output / max_abs if max_abs > 1.0 else eq_output
 
             st.subheader("🎶 Hasil Mixing & EQ")
             sf.write("mixed_output.wav", final_output, sr1)
@@ -301,7 +222,6 @@ sr = st.number_input("Sample Rate", 8000, 48000, 44100)
 
 if st.button("⚙️ Generate"):
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
-
     if wave_type == "Sine":
         y = 0.5 * np.sin(2 * np.pi * freq * t)
     elif wave_type == "Square":
@@ -322,8 +242,7 @@ if st.button("⚙️ Generate"):
     with open("generated.wav", "rb") as f:
         st.download_button("⬇️ Download Generated Audio", f, file_name=f"{wave_type.lower()}_{int(freq)}Hz.wav")
 
-
-# --- Copyright Section ---
+# --- Copyright ---
 st.markdown("---")
 st.markdown(
     "<p style='text-align:center; color:gray; font-style:italic;'>Copyright © 2025 2_D4_Telekomunikasi_A_kelompok_1_PDSK All rights reserved.</p>",
