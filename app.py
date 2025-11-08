@@ -4,7 +4,7 @@ import soundfile as sf
 import plotly.graph_objects as go
 from scipy import signal
 
-st.title("🎚️ Software-Defined Audio Mixer dan Equalizer 👌")
+st.title("🎚️ Audio Mixer dan Equalizer 👌")
 
 # --- Sidebar UI ---
 st.sidebar.header("🎛️ Kontrol Mixer")
@@ -290,3 +290,4 @@ st.markdown(
     "<p style='text-align:center; color:gray; font-style:italic;'>Copyright © 2025 2_D4_Telekomunikasi_A_kelompok_1_PDSK All rights reserved.</p>",
     unsafe_allow_html=True
 )
+
