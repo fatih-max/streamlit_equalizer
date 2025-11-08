@@ -17,7 +17,8 @@ st.sidebar.subheader("Channel 2")
 vol2 = st.sidebar.slider("Volume (dB)", -60.0, 6.0, 0.0, key="vol2")
 balance2 = st.sidebar.slider("Balance (L ⟷ R)", -1.0, 1.0, 0.0, key="bal2")
 
-st.sidebar.header("🎼 Master EQ")
+st.sidebar.header("🎼 Master EQ (Sesuai Requirement)")
+st.sidebar.caption("LPF/BPF/HPF Crossover @ 250Hz & 5kHz")
 eq_bass = st.sidebar.slider("Bass Gain (dB)", -12.0, 12.0, 0.0, key="eq_bass")
 eq_mid = st.sidebar.slider("Mid Gain (dB)", -12.0, 12.0, 0.0, key="eq_mid")
 eq_treble = st.sidebar.slider("Treble Gain (dB)", -12.0, 12.0, 0.0, key="eq_treble")
@@ -29,6 +30,7 @@ file2 = st.sidebar.file_uploader("Channel 2 (.wav)", type=["wav"], key="file2")
 process = st.sidebar.button("🔊 Proses Mixing")
 
 # --- Fungsi bantu (Plot diganti ke Plotly) ---
+# (Fungsi plot_waveform tidak diubah)
 def plot_waveform(data, sr, title):
     fig = go.Figure()
     duration = len(data) / sr
@@ -66,6 +68,7 @@ def plot_waveform(data, sr, title):
     fig.update_xaxes(rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
 
+# (Fungsi plot_spectrum tidak diubah)
 def plot_spectrum(data, sr, title):
     """
     Plot spektrum interaktif dengan Slider Peak Search.
@@ -194,7 +197,7 @@ def plot_spectrum(data, sr, title):
     # Tampilkan plot (hanya satu kali render)
     st.plotly_chart(fig, use_container_width=True)
 
-
+# (Fungsi apply_balance tidak diubah)
 def apply_balance(stereo, bal):
     if stereo.ndim == 1:
         stereo = np.stack([stereo, stereo], axis=1)
@@ -204,33 +207,9 @@ def apply_balance(stereo, bal):
         left_gain, right_gain = 1, 1 + bal
     return np.stack([stereo[:, 0] * left_gain, stereo[:, 1] * right_gain], axis=1)
 
-def design_filter(gain_db, cutoff, sr, filter_type, q=1.0):
-    if gain_db == 0:
-        return np.array([1]), np.array([1])
-    A = 10**(gain_db / 40)
-    w0 = 2 * np.pi * cutoff / sr
-    alpha = np.sin(w0) / (2 * q)
-    cos_w0 = np.cos(w0)
-    if filter_type == 'low_shelf':
-        b0 = A * ((A + 1) - (A - 1) * cos_w0 + 2 * np.sqrt(A) * alpha)
-        b1 = 2 * A * ((A - 1) - (A + 1) * cos_w0)
-        b2 = A * ((A + 1) - (A - 1) * cos_w0 - 2 * np.sqrt(A) * alpha)
-        a0 = (A + 1) + (A - 1) * cos_w0 + 2 * np.sqrt(A) * alpha
-        a1 = -2 * ((A - 1) + (A + 1) * cos_w0)
-        a2 = (A + 1) + (A - 1) * cos_w0 - 2 * np.sqrt(A) * alpha
-    elif filter_type == 'peaking':
-        b0, b1, b2 = 1 + alpha * A, -2 * cos_w0, 1 - alpha * A
-        a0, a1, a2 = 1 + alpha / A, -2 * cos_w0, 1 - alpha / A
-    elif filter_type == 'high_shelf':
-        b0 = A * ((A + 1) + (A - 1) * cos_w0 + 2 * np.sqrt(A) * alpha)
-        b1 = -2 * A * ((A - 1) + (A + 1) * cos_w0)
-        b2 = A * ((A + 1) + (A - 1) * cos_w0 - 2 * np.sqrt(A) * alpha)
-        a0 = (A + 1) - (A - 1) * cos_w0 + 2 * np.sqrt(A) * alpha
-        a1 = 2 * ((A - 1) - (A + 1) * cos_w0)
-        a2 = (A + 1) - (A - 1) * cos_w0 - 2 * np.sqrt(A) * alpha
-    else:
-        return np.array([1]), np.array([1])
-    return np.array([b0, b1, b2]) / a0, np.array([a0, a1, a2]) / a0
+# --- FUNGSI design_filter DIHAPUS ---
+# (Fungsi ini tidak lagi digunakan karena kita
+#  menggunakan LPF/BPF/HPF Crossover)
 
 # --- Preview sebelum mixing ---
 if file1:
@@ -273,13 +252,34 @@ if process:
 
             mixed = data1 + data2
 
-            b_bass, a_bass = design_filter(eq_bass, 250, sr1, 'low_shelf')
-            b_mid, a_mid = design_filter(eq_mid, 2000, sr1, 'peaking')
-            b_treble, a_treble = design_filter(eq_treble, 5000, sr1, 'high_shelf')
+            # --- IMPLEMENTASI EQ BARU (SESUAI REQUIREMENT) ---
+            
+            # 1. Tentukan frekuensi cutoff sesuai requirement
+            low_cutoff = 250  # Batas LPF
+            high_cutoff = 5000 # Batas HPF
+            
+            # 2. Desain filter LPF, BPF, dan HPF (Orde 2 / 12dB per oktaf)
+            #    (Menggunakan filter Butterworth)
+            b_lpf, a_lpf = signal.butter(2, low_cutoff, btype='lowpass', fs=sr1)
+            b_bpf, a_bpf = signal.butter(2, [low_cutoff, high_cutoff], btype='bandpass', fs=sr1)
+            b_hpf, a_hpf = signal.butter(2, high_cutoff, btype='highpass', fs=sr1)
 
-            eq_output = signal.lfilter(b_bass, a_bass, mixed, axis=0)
-            eq_output = signal.lfilter(b_mid, a_mid, eq_output, axis=0)
-            eq_output = signal.lfilter(b_treble, a_treble, eq_output, axis=0)
+            # 3. Terapkan filter secara PARALEL
+            signal_low = signal.lfilter(b_lpf, a_lpf, mixed, axis=0)
+            signal_mid = signal.lfilter(b_bpf, a_bpf, mixed, axis=0)
+            signal_high = signal.lfilter(b_hpf, a_hpf, mixed, axis=0)
+
+            # 4. Ambil nilai gain dari slider sidebar
+            gain_bass = 10**(eq_bass / 20)
+            gain_mid = 10**(eq_mid / 20)
+            gain_treble = 10**(eq_treble / 20)
+
+            # 5. Terapkan gain ke setiap jalur sinyal dan gabungkan kembali
+            eq_output = (signal_low * gain_bass) + \
+                        (signal_mid * gain_mid) + \
+                        (signal_high * gain_treble)
+
+            # --- AKHIR BLOK EQ BARU ---
 
             max_abs = np.max(np.abs(eq_output))
             # Normalisasi jika terjadi clipping
