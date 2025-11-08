@@ -68,7 +68,8 @@ def plot_waveform(data, sr, title):
 
 def plot_spectrum(data, sr, title):
     """
-    Plot spektrum interaktif dengan Slider Peak Search, tanpa hover.
+    Plot spektrum interaktif dengan Slider Peak Search.
+    Versi ini diperbaiki agar hanya merender plot satu kali.
     """
     fig = go.Figure()
 
@@ -76,7 +77,6 @@ def plot_spectrum(data, sr, title):
         data = np.stack([data, data], axis=1)
 
     # --- FFT dan Logika dB ---
-    # Digunakan untuk plotting
     magnitude_db_left = np.full(1, -100.0)
     magnitude_db_right = np.full(1, -100.0)
     freqs = np.array([0])
@@ -101,17 +101,17 @@ def plot_spectrum(data, sr, title):
         else:
             magnitude_db_right = magnitude_db
 
+        # Tambahkan trace ke figur utama
         fig.add_trace(go.Scatter(
             x=freqs,
             y=magnitude_db,
             name=f'{ch_name} Channel',
             mode='lines',
             line=dict(color=color, width=1),
-            hoverinfo='none'  # Nonaktifkan hover
+            hoverinfo='none' # Sesuai kode asli
         ))
 
     # --- Logika Peak Search ---
-    # Gunakan sinyal gabungan (rata-rata) untuk mencari puncak
     sig_combined = np.mean(data, axis=1) - np.mean(data, axis=1)
     fft_combined = np.fft.rfft(sig_combined)
     freqs_combined = np.fft.rfftfreq(len(sig_combined), 1 / sr)
@@ -127,22 +127,11 @@ def plot_spectrum(data, sr, title):
     # Cari semua puncak yang signifikan (di atas -90dB)
     peaks, _ = signal.find_peaks(magnitude_db_combined, height=-90, distance=5)
 
-    # --- Layout dan Slider ---
-    fig.update_layout(
-        title=title,
-        xaxis_title="Frequency [Hz]",
-        yaxis_title="Level (dBFS)",
-        yaxis_range=[-100, 5], 
-        margin=dict(l=40, r=40, t=40, b=40),
-        height=360,
-        hovermode=False # Nonaktifkan hover
-    )
-    fig.update_xaxes(type="log", rangeslider=dict(visible=True))
-
-    # Tampilkan plot
-    st.plotly_chart(fig, use_container_width=True)
-
-    # --- UI Slider dan Penanda Puncak ---
+    # --- UI Slider dan Penanda Puncak (Ditempatkan SEBELUM plot) ---
+    target_freq = 0
+    display_freq = 0
+    display_level = -100.0
+    
     if len(peaks) == 0:
         st.warning("Tidak ada puncak signifikan yang terdeteksi.")
     else:
@@ -157,7 +146,7 @@ def plot_spectrum(data, sr, title):
             "Geser Kursor Puncak (Hz)", 
             min_f, 
             max_f, 
-            int(peak_freqs[np.argmax(peak_levels)]),  # Default ke puncak tertinggi
+            int(peak_freqs[np.argmax(peak_levels)]), # Default ke puncak tertinggi
             key=f"slider_{title}"
         )
         
@@ -166,26 +155,19 @@ def plot_spectrum(data, sr, title):
         display_freq = peak_freqs[closest_peak_idx]
         display_level = peak_levels[closest_peak_idx]
 
-        # 3. Tampilkan metrik puncak yang ditemukan
+        # 3. Tampilkan metrik (Sesuai UI asli)
         st.metric(
             f"Puncak Terdekat (dari {target_freq} Hz)", 
             f"{display_freq:.1f} Hz", 
             f"{display_level:.1f} dBFS"
         )
         
-        # 4. Tambahkan penanda ke plot (Harus di-render ulang)
-        # Hapus plot lama dan buat ulang dengan penanda
-        
-        # Buat ulang plot
-        fig_with_marker = go.Figure()
-        fig_with_marker.add_trace(go.Scatter(x=freqs, y=magnitude_db_left, name='Left Channel', mode='lines', line=dict(color='blue', width=1), hoverinfo='none'))
-        fig_with_marker.add_trace(go.Scatter(x=freqs, y=magnitude_db_right, name='Right Channel', mode='lines', line=dict(color='orange', width=1), hoverinfo='none'))
-        
+        # 4. Tambahkan penanda ke plot
         # Tambahkan Kursor Slider
-        fig_with_marker.add_vline(x=target_freq, line_dash="dash", line_color="grey", annotation_text="Kursor")
+        fig.add_vline(x=target_freq, line_dash="dash", line_color="grey", annotation_text="Kursor")
         
         # Tambahkan Penanda Puncak
-        fig_with_marker.add_trace(go.Scatter(
+        fig.add_trace(go.Scatter(
             x=[display_freq],
             y=[display_level],
             mode='markers+text',
@@ -195,22 +177,22 @@ def plot_spectrum(data, sr, title):
             marker=dict(color='red', size=10, symbol='x'),
             hoverinfo='none'
         ))
-        
-        fig_with_marker.update_layout(
-            title=title,
-            xaxis_title="Frequency [Hz]",
-            yaxis_title="Level (dBFS)",
-            yaxis_range=[-100, 5], 
-            margin=dict(l=40, r=40, t=40, b=40),
-            height=360,
-            hovermode=False,
-            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
-        )
-        fig_with_marker.update_xaxes(type="log", rangeslider=dict(visible=True))
-        
-        # Hapus placeholder plot lama dan tampilkan yang baru
-        st.empty() # Hapus plot sebelumnya
-        st.plotly_chart(fig_with_marker, use_container_width=True) # Tampilkan plot baru
+
+    # --- Layout dan Tampilkan Plot (Hanya satu kali) ---
+    fig.update_layout(
+        title=title,
+        xaxis_title="Frequency [Hz]",
+        yaxis_title="Level (dBFS)",
+        yaxis_range=[-100, 5], 
+        margin=dict(l=40, r=40, t=40, b=40),
+        height=360,
+        hovermode=False, # Sesuai UI asli
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01) # Sesuai UI asli
+    )
+    fig.update_xaxes(type="log", rangeslider=dict(visible=True))
+
+    # Tampilkan plot (hanya satu kali render)
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def apply_balance(stereo, bal):
