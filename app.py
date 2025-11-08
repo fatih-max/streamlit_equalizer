@@ -68,11 +68,11 @@ def plot_waveform(data, sr, title):
     fig.update_xaxes(rangeslider=dict(visible=True))
     st.plotly_chart(fig, use_container_width=True)
 
-# (Fungsi plot_spectrum tidak diubah)
+# (Fungsi plot_spectrum DISEDERHANAKAN - Peak search dihapus)
 def plot_spectrum(data, sr, title):
     """
-    Plot spektrum interaktif dengan Slider Peak Search.
-    Versi ini diperbaiki agar hanya merender plot satu kali.
+    Plot spektrum interaktif (tanpa fitur peak search slider).
+    Hover diaktifkan untuk melihat nilai.
     """
     fig = go.Figure()
 
@@ -80,29 +80,28 @@ def plot_spectrum(data, sr, title):
         data = np.stack([data, data], axis=1)
 
     # --- FFT dan Logika dB ---
-    magnitude_db_left = np.full(1, -100.0)
-    magnitude_db_right = np.full(1, -100.0)
     freqs = np.array([0])
 
     for ch_idx, ch_name, color in zip([0, 1], ['Left', 'Right'], ['blue', 'orange']):
         sig = data[:, ch_idx] - np.mean(data[:, ch_idx])
-        fft = np.fft.rfft(sig)
-        freqs = np.fft.rfftfreq(len(sig), 1 / sr)
         
-        magnitude = np.abs(fft)
-        ref_max = np.max(magnitude)
+        # Handle sinyal diam (semua nol)
+        if np.max(np.abs(sig)) < 1e-12:
+            freqs = np.fft.rfftfreq(max(1, len(sig)), 1 / sr) # Pastikan len(sig) tidak 0
+            magnitude_db = np.full_like(freqs, -100.0)
+        else:
+            fft = np.fft.rfft(sig)
+            freqs = np.fft.rfftfreq(len(sig), 1 / sr)
+            
+            magnitude = np.abs(fft)
+            ref_max = np.max(magnitude)
 
-        if ref_max < 1e-12:
-            magnitude_db = np.full_like(magnitude, -100.0)
-        else:
-            min_mag = ref_max * (10**(-100 / 20.0)) 
-            magnitude_clipped = np.maximum(magnitude, min_mag)
-            magnitude_db = 20 * np.log10(magnitude_clipped / ref_max)
-        
-        if ch_idx == 0:
-            magnitude_db_left = magnitude_db
-        else:
-            magnitude_db_right = magnitude_db
+            if ref_max < 1e-12:
+                magnitude_db = np.full_like(magnitude, -100.0)
+            else:
+                min_mag = ref_max * (10**(-100 / 20.0)) 
+                magnitude_clipped = np.maximum(magnitude, min_mag)
+                magnitude_db = 20 * np.log10(magnitude_clipped / ref_max)
 
         # Tambahkan trace ke figur utama
         fig.add_trace(go.Scatter(
@@ -111,77 +110,11 @@ def plot_spectrum(data, sr, title):
             name=f'{ch_name} Channel',
             mode='lines',
             line=dict(color=color, width=1),
-            hoverinfo='none' # Sesuai kode asli
+            # Aktifkan hover
+            hovertemplate='Freq: %{x:.1f} Hz<br>Level: %{y:.1f} dBFS<extra></extra>' 
         ))
 
-    # --- Logika Peak Search ---
-    sig_combined = np.mean(data, axis=1) - np.mean(data, axis=1)
-    fft_combined = np.fft.rfft(sig_combined)
-    freqs_combined = np.fft.rfftfreq(len(sig_combined), 1 / sr)
-    mag_combined = np.abs(fft_combined)
-    ref_max_combined = np.max(mag_combined)
-    
-    magnitude_db_combined = np.full_like(mag_combined, -100.0)
-    if ref_max_combined > 1e-12:
-        min_mag_combined = ref_max_combined * (10**(-100 / 20.0))
-        mag_clipped_combined = np.maximum(mag_combined, min_mag_combined)
-        magnitude_db_combined = 20 * np.log10(mag_clipped_combined / ref_max_combined)
-
-    # Cari semua puncak yang signifikan (di atas -90dB)
-    peaks, _ = signal.find_peaks(magnitude_db_combined, height=-90, distance=5)
-
-    # --- UI Slider dan Penanda Puncak (Ditempatkan SEBELUM plot) ---
-    target_freq = 0
-    display_freq = 0
-    display_level = -100.0
-    
-    if len(peaks) == 0:
-        st.warning("Tidak ada puncak signifikan yang terdeteksi.")
-    else:
-        peak_freqs = freqs_combined[peaks]
-        peak_levels = magnitude_db_combined[peaks]
-        
-        min_f = max(20, int(freqs_combined.min()))
-        max_f = int(freqs_combined.max())
-        
-        # 1. Buat Slider Kursor
-        target_freq = st.slider(
-            "Geser Kursor Puncak (Hz)", 
-            min_f, 
-            max_f, 
-            int(peak_freqs[np.argmax(peak_levels)]), # Default ke puncak tertinggi
-            key=f"slider_{title}"
-        )
-        
-        # 2. Cari puncak terdekat dari slider
-        closest_peak_idx = np.argmin(np.abs(peak_freqs - target_freq))
-        display_freq = peak_freqs[closest_peak_idx]
-        display_level = peak_levels[closest_peak_idx]
-
-        # 3. Tampilkan metrik (Sesuai UI asli)
-        st.metric(
-            f"Puncak Terdekat (dari {target_freq} Hz)", 
-            f"{display_freq:.1f} Hz", 
-            f"{display_level:.1f} dBFS"
-        )
-        
-        # 4. Tambahkan penanda ke plot
-        # Tambahkan Kursor Slider
-        fig.add_vline(x=target_freq, line_dash="dash", line_color="grey", annotation_text="Kursor")
-        
-        # Tambahkan Penanda Puncak
-        fig.add_trace(go.Scatter(
-            x=[display_freq],
-            y=[display_level],
-            mode='markers+text',
-            text=[f"{display_freq:.1f} Hz"],
-            textposition="top center",
-            name='Puncak Terdekat',
-            marker=dict(color='red', size=10, symbol='x'),
-            hoverinfo='none'
-        ))
-
-    # --- Layout dan Tampilkan Plot (Hanya satu kali) ---
+    # --- Layout dan Tampilkan Plot (Tanpa peak search) ---
     fig.update_layout(
         title=title,
         xaxis_title="Frequency [Hz]",
@@ -189,13 +122,13 @@ def plot_spectrum(data, sr, title):
         yaxis_range=[-100, 5], 
         margin=dict(l=40, r=40, t=40, b=40),
         height=360,
-        hovermode=False, # Sesuai UI asli
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01) # Sesuai UI asli
+        hovermode='x unified', # Aktifkan hover mode
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
     )
     fig.update_xaxes(type="log", rangeslider=dict(visible=True))
 
-    # Tampilkan plot (hanya satu kali render)
     st.plotly_chart(fig, use_container_width=True)
+
 
 # (Fungsi apply_balance tidak diubah)
 def apply_balance(stereo, bal):
@@ -207,9 +140,6 @@ def apply_balance(stereo, bal):
         left_gain, right_gain = 1, 1 + bal
     return np.stack([stereo[:, 0] * left_gain, stereo[:, 1] * right_gain], axis=1)
 
-# --- FUNGSI design_filter DIHAPUS ---
-# (Fungsi ini tidak lagi digunakan karena kita
-#  menggunakan LPF/BPF/HPF Crossover)
 
 # --- Preview sebelum mixing ---
 if file1:
@@ -252,14 +182,13 @@ if process:
 
             mixed = data1 + data2
 
-            # --- IMPLEMENTASI EQ BARU (SESUAI REQUIREMENT) ---
+            # --- IMPLEMENTASI EQ (SESUAI REQUIREMENT LPF/BPF/HPF) ---
             
             # 1. Tentukan frekuensi cutoff sesuai requirement
             low_cutoff = 250  # Batas LPF
             high_cutoff = 5000 # Batas HPF
             
             # 2. Desain filter LPF, BPF, dan HPF (Orde 2 / 12dB per oktaf)
-            #    (Menggunakan filter Butterworth)
             b_lpf, a_lpf = signal.butter(2, low_cutoff, btype='lowpass', fs=sr1)
             b_bpf, a_bpf = signal.butter(2, [low_cutoff, high_cutoff], btype='bandpass', fs=sr1)
             b_hpf, a_hpf = signal.butter(2, high_cutoff, btype='highpass', fs=sr1)
@@ -279,7 +208,7 @@ if process:
                         (signal_mid * gain_mid) + \
                         (signal_high * gain_treble)
 
-            # --- AKHIR BLOK EQ BARU ---
+            # --- AKHIR BLOK EQ ---
 
             max_abs = np.max(np.abs(eq_output))
             # Normalisasi jika terjadi clipping
