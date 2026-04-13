@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Smart Audio DSP Control</title>
+  <style>
+    :root {
+      --bg-color: #0d1117;
+      --card-bg: #161b22;
+      --text-main: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #00f2fe;
+      --accent-glow: rgba(0, 242, 254, 0.4);
+      --track-bg: #21262d;
+      --danger: #f85149;
+      --success: #2ea043;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none; /* Mencegah teks terblokir saat menggeser slider di HP */
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 15px;
+    }
+
+    .dashboard {
+      background: var(--card-bg);
+      width: 100%;
+      max-width: 450px;
+      padding: 30px 25px;
+      border-radius: 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05);
+      border: 1px solid #30363d;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 35px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #30363d;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .title p {
+      margin: 4px 0 0 0;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 20px;
+      background: rgba(46, 160, 67, 0.1);
+      color: var(--success);
+      border: 1px solid rgba(46, 160, 67, 0.2);
+      transition: all 0.3s ease;
+    }
+
+    .status-badge.disconnected {
+      background: rgba(248, 81, 73, 0.1);
+      color: var(--danger);
+      border-color: rgba(248, 81, 73, 0.2);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--success);
+      border-radius: 50%;
+      margin-right: 6px;
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .status-badge.disconnected .status-dot {
+      background-color: var(--danger);
+      box-shadow: 0 0 8px var(--danger);
+    }
+
+    .control-block {
+      margin-bottom: 28px;
+    }
+
+    .control-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .control-label {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .control-value {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      width: 60px;
+      text-align: right;
+    }
+
+    /* Kustomisasi Slider Modern */
+    input[type=range] {
+      -webkit-appearance: none;
+      width: 100%;
+      background: transparent;
+      margin: 10px 0;
+    }
+
+    input[type=range]:focus {
+      outline: none;
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 8px;
+      cursor: pointer;
+      background: var(--track-bg);
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      height: 24px;
+      width: 24px;
+      border-radius: 50%;
+      background: var(--bg-color);
+      border: 2px solid var(--accent);
+      cursor: pointer;
+      -webkit-appearance: none;
+      margin-top: -9px;
+      box-shadow: 0 0 15px var(--accent-glow);
+      transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    input[type=range]::-webkit-slider-thumb:active {
+      transform: scale(1.2);
+      background: var(--accent);
+    }
+
+    /* Penyesuaian untuk Firefox */
+    input[type=range]::-moz-range-track {
+      width: 100%;
+      height: 8px;
+      cursor: pointer;
+      background: var(--track-bg);
+      border-radius: 4px;
+    }
+    input[type=range]::-moz-range-thumb {
+      height: 24px;
+      width: 24px;
+      border-radius: 50%;
+      background: var(--bg-color);
+      border: 2px solid var(--accent);
+      cursor: pointer;
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    /* Marker dB */
+    .ticks {
+      display: flex;
+      justify-content: space-between;
+      padding: 0 10px;
+      margin-top: 6px;
+      font-size: 10px;
+      color: #484f58;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dashboard">
+    <div class="header">
+      <div class="title">
+        <h1>Audio Control</h1>
+        <p>L/R Stereo Channel</p>
+      </div>
+      <div id="connStatus" class="status-badge disconnected">
+        <div class="status-dot"></div>
+        <span id="connText">OFFLINE</span>
+      </div>
+    </div>
+
+    <div class="control-block">
+      <div class="control-header">
+        <span class="control-label">Master Volume</span>
+        <span class="control-value" id="val-vol">50%</span>
+      </div>
+      <input type="range" id="vol" min="0" max="100" value="50" oninput="sendData('vol', this.value, '%')">
+    </div>
+
+    <div class="control-block">
+      <div class="control-header">
+        <span class="control-label">Treble</span>
+        <span class="control-value" id="val-treble">0 dB</span>
+      </div>
+      <input type="range" id="treble" min="-12" max="12" value="0" oninput="sendData('treble', this.value, ' dB')">
+      <div class="ticks"><span>-12</span><span>0</span><span>+12</span></div>
+    </div>
+
+    <div class="control-block">
+      <div class="control-header">
+        <span class="control-label">Middle</span>
+        <span class="control-value" id="val-mid">0 dB</span>
+      </div>
+      <input type="range" id="mid" min="-12" max="12" value="0" oninput="sendData('mid', this.value, ' dB')">
+      <div class="ticks"><span>-12</span><span>0</span><span>+12</span></div>
+    </div>
+
+    <div class="control-block">
+      <div class="control-header">
+        <span class="control-label">Bass</span>
+        <span class="control-value" id="val-bass">0 dB</span>
+      </div>
+      <input type="range" id="bass" min="-12" max="12" value="0" oninput="sendData('bass', this.value, ' dB')">
+      <div class="ticks"><span>-12</span><span>0</span><span>+12</span></div>
+    </div>
+  </div>
+
+  <script>
+    // Konfigurasi WebSocket
+    // Jika dibuka dari HP/Laptop lokal (file://), gateway akan menggunakan mock/simulasi
+    let gateway = (window.location.protocol === "file:") ? null : `ws://${window.location.hostname}/ws`;
+    let websocket;
+    
+    // Inisialisasi saat halaman dimuat
+    window.addEventListener('load', onLoad);
+
+    function onLoad() {
+      if(gateway) {
+        initWebSocket();
+      } else {
+        // Mode Simulasi (saat file HTML dibuka langsung di komputer/HP)
+        console.log("Berjalan di mode lokal. WebSocket dimatikan untuk keperluan testing UI.");
+        updateConnectionStatus(true, "SIMULASI");
+      }
+    }
+
+    function initWebSocket() {
+      console.log('Mencoba terhubung ke WebSocket...');
+      websocket = new WebSocket(gateway);
+      
+      websocket.onopen    = onOpen;
+      websocket.onclose   = onClose;
+      websocket.onmessage = onMessage;
+    }
+
+    function onOpen(event) {
+      console.log('Koneksi WebSocket Terbuka');
+      updateConnectionStatus(true, "CONNECTED");
+    }
+
+    function onClose(event) {
+      console.log('Koneksi WebSocket Terputus');
+      updateConnectionStatus(false, "OFFLINE");
+      // Coba sambung ulang setiap 2 detik
+      setTimeout(initWebSocket, 2000);
+    }
+
+    function onMessage(event) {
+      // Fitur tambahan: Menerima update dari ESP32 (misal jika volume diputar via Rotary Encoder fisik)
+      try {
+        let data = JSON.parse(event.data);
+        if(data.param && data.value !== undefined) {
+          let slider = document.getElementById(data.param);
+          if(slider) {
+            slider.value = data.value;
+            // Panggil event input manual untuk update UI teks
+            slider.dispatchEvent(new Event('input')); 
+          }
+        }
+      } catch (e) {
+        console.error("Format pesan tidak valid", e);
+      }
+    }
+
+    function updateConnectionStatus(isConnected, text) {
+      const badge = document.getElementById('connStatus');
+      const label = document.getElementById('connText');
+      
+      label.innerText = text;
+      if(isConnected) {
+        badge.classList.remove('disconnected');
+      } else {
+        badge.classList.add('disconnected');
+      }
+    }
+
+    function sendData(param, value, unit) {
+      // 1. Update Teks di UI secara instan (format angka + atau -)
+      let displayValue = value;
+      if (param !== 'vol' && value > 0) {
+        displayValue = "+" + value;
+      }
+      document.getElementById(`val-${param}`).innerText = displayValue + unit;
+
+      // 2. Kirim data ke ESP32 jika terkoneksi
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        let payload = JSON.stringify({
+          "parameter": param,
+          "value": parseInt(value)
+        });
+        websocket.send(payload);
+      } else {
+        // Log ke console komputer jika sedang mode testing lokal
+        console.log(`Mengirim -> Param: ${param}, Value: ${value}`);
+      }
+    }
+  </script>
+
+</body>
+</html>
